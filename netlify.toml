@@ -1,0 +1,6 @@
+[build]
+  functions = "netlify/functions"
+
+# Optional: make it obvious what env is required
+[template.environment]
+  N8N_URL = "https://systemixai.app.n8n.cloud/webhook/prequote"
