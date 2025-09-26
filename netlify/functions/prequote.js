@@ -29,6 +29,19 @@ export async function handler(event, context) {
       });
 
       const text = await res.text();
+      
+      // Handle empty response from n8n
+      if (!text || text.trim() === '') {
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json", ...cors },
+          body: JSON.stringify({ 
+            reply: "Thank you for your message! I've received your request and will get back to you soon.",
+            status: "received"
+          }),
+        };
+      }
+      
       return {
         statusCode: res.status,
         headers: { "Content-Type": "application/json", ...cors },
