@@ -1,0 +1,5 @@
+# Serve the widget as the main page
+/ /widget-prequote.html 200
+
+# Handle function routes
+/.netlify/functions/* /.netlify/functions/:splat 200

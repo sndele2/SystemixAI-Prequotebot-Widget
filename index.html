@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Pre-Quote Assistant (Widget)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b1221; --panel:#0f172a; --line:#1f2937; --accent:#22c55e; --text:#e5e7eb; --muted:#9aa6b2; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 420px; margin: 24px auto; border:1px solid var(--line); border-radius:16px; overflow:hidden; box-shadow:0 8px 28px rgba(0,0,0,.35); }
+    .header { padding:12px 16px; background:linear-gradient(90deg,#0b1020,#101828); display:flex; align-items:center; gap:10px; }
+    .dot { width:10px; height:10px; background:var(--accent); border-radius:50%; box-shadow:0 0 8px var(--accent); }
+    .title { font-size:15px; font-weight:600; letter-spacing:.2px; }
+    .sub { margin-left:auto; font-size:12px; color:var(--muted); }
+    .msgs { height: 480px; overflow:auto; padding:14px; background:var(--bg); }
+    .msg { padding:10px 12px; border-radius:12px; margin:8px 0; max-width: 85%; line-height:1.38; white-space:pre-wrap; word-wrap: break-word; }
+    .user { background:#1f2937; margin-left:auto; border-bottom-right-radius:4px; }
+    .bot { background:var(--panel); border:1px solid #223046; border-bottom-left-radius:4px; }
+    .input { display:flex; gap:8px; padding:12px; background:var(--panel); border-top:1px solid var(--line); }
+    input[type=text] { flex:1; background:#0b1221; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:10px 12px; outline:none; }
+    input::placeholder { color:#6b7280; }
+    button { background:var(--accent); color:#063; border:0; padding:10px 14px; border-radius:12px; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .meta { font-size:11px; color:var(--muted); text-align:center; padding:6px; background:#0d1526; border-top:1px solid var(--line); }
+    .badge { font-size:10px; background:#0e1a2e; color:#8fb1c9; padding:3px 6px; border-radius:999px; border:1px solid #203149; }
+    .footer-note { font-size:10px; color:#7b8794; padding:8px 14px; text-align:center; }
+    @media (max-width: 520px) { .wrap { margin: 0; border-radius:0; border-left:0; border-right:0; } }
+  </style>
+</head>
+<body>
+  <div class="wrap" role="application" aria-label="Pre-Quote Chat Widget">
+    <div class="header">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="title">Pre-Quote Assistant</div>
+      <div class="sub">MVP</div>
+    </div>
+
+    <div id="msgs" class="msgs" aria-live="polite"></div>
+
+    <div class="input">
+      <input id="text" type="text" autocomplete="off" inputmode="text"
+             placeholder="Tell us service, budget, and timeline…" aria-label="Message input" />
+      <button id="send" aria-label="Send message">Send</button>
+    </div>
+
+    <div class="meta">
+      <span class="badge">Session: <span id="sid"></span></span>
+    </div>
+    <div class="footer-note">Tip: Press Enter to send</div>
+  </div>
+
+  <script>
+    // ======= CONFIG: Set this to your n8n POST webhook =======
+    const ENDPOINT = "https://prequotebot-widget.netlify.app/.netlify/functions/prequote";
+    // =========================================================
+
+    const sidSpan = document.getElementById('sid');
+    const msgsEl = document.getElementById('msgs');
+    const inputEl = document.getElementById('text');
+    const sendBtn = document.getElementById('send');
+
+    // Persist / read session_id
+    function getSessionId() {
+      let sid = localStorage.getItem('prequote_session_id');
+      if (!sid) {
+        sid = Math.random().toString(36).slice(2);
+        localStorage.setItem('prequote_session_id', sid);
+      }
+      return sid;
+    }
+    const session_id = getSessionId();
+    sidSpan.textContent = session_id;
+
+    // Utilities
+    function addMsg(text, who = 'bot') {
+      const div = document.createElement('div');
+      div.className = `msg ${who === 'user' ? 'user' : 'bot'}`;
+      div.textContent = text;
+      msgsEl.appendChild(div);
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    }
+    function setSending(state) {
+      sendBtn.disabled = state;
+      inputEl.disabled = state;
+    }
+
+    // Welcome message
+    addMsg("Welcome! I'll quickly collect: service type, budget, and timeframe—then give you a concise pre-quote with next steps.");
+
+    async function sendMessage() {
+      const text = inputEl.value.trim();
+      if (!text) return;
+      addMsg(text, 'user');
+      inputEl.value = "";
+      setSending(true);
+
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-Id': session_id
+          },
+          body: JSON.stringify({ session_id, message: text })
+        });
+
+        // Non-2xx handling
+        if (!res.ok) {
+          const errTxt = await res.text().catch(() => "");
+          addMsg("Error: " + (errTxt || `HTTP ${res.status}`));
+          setSending(false);
+          return;
+        }
+
+        const data = await res.json().catch(() => ({}));
+        if (data && data.reply) {
+          addMsg(data.reply, 'bot');
+        } else if (data && data.error) {
+          addMsg("Error: " + data.error, 'bot');
+        } else {
+          addMsg("(No reply)", 'bot');
+        }
+      } catch (e) {
+        addMsg("Network error. Please try again.", 'bot');
+      } finally {
+        setSending(false);
+        inputEl.focus();
+      }
+    }
+
+    // Events
+    sendBtn.addEventListener('click', sendMessage);
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+  </script>
+
+  <!--
+  ===== USAGE INSTRUCTIONS =====
+  
+  1. SET ENDPOINT:
+     Edit the ENDPOINT constant at the top of the script:
+     const ENDPOINT = "https://prequotebot-widget.netlify.app/.netlify/functions/prequote";
+  
+  2. TEST LOCALLY:
+     Simply open this file in any modern browser:
+     - Double-click widget-prequote.html
+     - Or drag & drop into browser window
+     - Or use: file:///path/to/widget-prequote.html
+  
+  3. EMBED IN ANY PAGE:
+     Use an iframe to embed on any website:
+     <iframe src="https://prequotebot-widget.netlify.app/" 
+             width="420" height="600" 
+             frameborder="0"
+             style="border-radius: 16px; box-shadow: 0 8px 28px rgba(0,0,0,0.35);">
+     </iframe>
+  
+  ==============================
+  -->
+</body>
+</html>
